@@ -19,13 +19,21 @@ func main() {
 	// 1. Determine default model
 	defaultModel := os.Getenv("OLLAMA_MODEL")
 	if defaultModel == "" {
-		defaultModel = "phi4-mini:latest"
+		defaultModel = "qwen2.5-coder:7b"
 	}
 
 	// 2. Define flags
 	modelFlag := flag.String("model", defaultModel, "Ollama model name to use for prompt enhancement")
 	startFlag := flag.String("start", "", "Start TUI session with the enhanced prompt: 'claude', 'opencode', or 'agy'")
-	logFlag := flag.Bool("log", false, "Print verbose execution logs of the pipeline")
+	
+	var verbose bool
+	flag.BoolVar(&verbose, "verbose", false, "Print verbose execution logs of the pipeline")
+	flag.BoolVar(&verbose, "v", false, "Print verbose execution logs of the pipeline (shorthand)")
+	
+	var silent bool
+	flag.BoolVar(&silent, "silent", false, "Omit any text from the output except the final prompt")
+	flag.BoolVar(&silent, "s", false, "Omit any text from the output except the final prompt (shorthand)")
+
 	maxPassesFlag := flag.Int("max-passes", 2, "Maximum number of pipeline passes for context discovery")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: promptenhance [flags] \"your prompt here\"\n\nFlags:\n")
@@ -84,7 +92,8 @@ func main() {
 
 	// 9. Initialize Pipeline and run enhancement
 	pipe := pipeline.NewPipeline(dbClient, ollClient)
-	pipe.Verbose = *logFlag
+	pipe.Verbose = verbose && !silent
+	pipe.Silent = silent
 
 	enhancedPrompt, err := pipe.Enhance(ctx, *modelFlag, rawPrompt, *maxPassesFlag)
 	if err != nil {
@@ -101,8 +110,12 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		fmt.Println("\n✨ --- Enhanced Prompt ---")
-		fmt.Println(enhancedPrompt)
-		fmt.Println("-------------------------")
+		if silent {
+			fmt.Println(enhancedPrompt)
+		} else {
+			fmt.Println("\n --- Enhanced Prompt ---")
+			fmt.Println(enhancedPrompt)
+			fmt.Println("-------------------------")
+		}
 	}
 }

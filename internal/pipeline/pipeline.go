@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/roysland/localpromptenhance/internal/agentdb"
@@ -15,6 +16,7 @@ type Pipeline struct {
 	agentdbClient *agentdb.Client
 	ollamaClient  *ollama.Client
 	Verbose       bool
+	Silent        bool
 }
 
 // NewPipeline creates a new pipeline instance.
@@ -91,7 +93,7 @@ Available tools:
 7. git_diff (no parameters) - Fetch unstaged/staged git changes in the workspace. Great to capture current active changes.
 8. git_status (no parameters) - View short git status to see modified files.
 9. list_directory (parameters: dir_path) - List contents of a local directory.
-10. search (parameters: query) - Search for occurrences of strings/text/code snippets using AgentDB. Excellent for finding specific flag usages like "--log" or names in code.
+10. search (parameters: query) - Search for occurrences of strings/text/code snippets using AgentDB. Excellent for finding specific flag usages like "--verbose" or names in code.
 11. find_symbol (parameters: name) - Locate exact symbol definitions by name (like struct, variable, or func name) using AgentDB.
 
 CRITICAL RULES FOR TOOL CALLS:
@@ -138,7 +140,9 @@ CRITICAL RULES FOR THE FINAL PROMPT:
 			}
 		}
 
-		fmt.Printf("🤖 Running Discovery Pass %d through Ollama (%s)...\n", pass, model)
+		if !p.Silent {
+			fmt.Printf("Running Discovery Pass %d through Ollama (%s)...\n", pass, model)
+		}
 		respText, err := p.ollamaClient.Chat(ctx, model, messages)
 		if err != nil {
 			return "", fmt.Errorf("ollama discovery pass %d failed: %w", pass, err)
@@ -150,7 +154,9 @@ CRITICAL RULES FOR THE FINAL PROMPT:
 
 		llmResp, err := parseLLMResponse(respText)
 		if err != nil {
-			fmt.Printf("⚠️ Warning: Failed parsing LLM response as JSON in discovery pass %d (%v). Using raw response as prompt.\n", pass, err)
+			if !p.Silent {
+				fmt.Fprintf(os.Stderr, "Warning: Failed parsing LLM response as JSON in discovery pass %d (%v). Using raw response as prompt.\n", pass, err)
+			}
 			return respText, nil
 		}
 
@@ -172,25 +178,37 @@ CRITICAL RULES FOR THE FINAL PROMPT:
 			switch tc.Name {
 			case "read_file":
 				filePath, _ := tc.Arguments["file_path"].(string)
-				fmt.Printf("⚙️ Executing internal tool read_file for %q...\n", filePath)
+				if !p.Silent {
+					fmt.Printf("Executing internal tool read_file for %q...\n", filePath)
+				}
 				res, err = executeReadFile(p.agentdbClient.ProjectRoot, filePath)
 			case "git_diff":
-				fmt.Printf("⚙️ Executing internal tool git_diff...\n")
+				if !p.Silent {
+					fmt.Printf("Executing internal tool git_diff...\n")
+				}
 				res, err = executeGitDiff(p.agentdbClient.ProjectRoot)
 			case "git_status":
-				fmt.Printf("⚙️ Executing internal tool git_status...\n")
+				if !p.Silent {
+					fmt.Printf("Executing internal tool git_status...\n")
+				}
 				res, err = executeGitStatus(p.agentdbClient.ProjectRoot)
 			case "list_directory":
 				dirPath, _ := tc.Arguments["dir_path"].(string)
-				fmt.Printf("⚙️ Executing internal tool list_directory for %q...\n", dirPath)
+				if !p.Silent {
+					fmt.Printf("Executing internal tool list_directory for %q...\n", dirPath)
+				}
 				res, err = executeListDirectory(p.agentdbClient.ProjectRoot, dirPath)
 			default:
-				fmt.Printf("⚙️ Executing AgentDB tool %s with arguments %+v...\n", tc.Name, tc.Arguments)
+				if !p.Silent {
+					fmt.Printf("Executing AgentDB tool %s with arguments %+v...\n", tc.Name, tc.Arguments)
+				}
 				res, err = p.agentdbClient.CallTool(ctx, tc.Name, tc.Arguments)
 			}
 
 			if err != nil {
-				fmt.Printf("⚠️ Warning: tool execution %s failed: %v\n", tc.Name, err)
+				if !p.Silent {
+					fmt.Fprintf(os.Stderr, "Warning: tool execution %s failed: %v\n", tc.Name, err)
+				}
 				gatheredContext = append(gatheredContext, fmt.Sprintf("Tool %s failed: %v", tc.Name, err))
 			} else {
 				if p.Verbose {
@@ -220,7 +238,9 @@ CRITICAL RULES FOR THE FINAL PROMPT:
 		}
 	}
 
-	fmt.Printf("🤖 Running Final Pass through Ollama (%s)...\n", model)
+	if !p.Silent {
+		fmt.Printf("Running Final Pass through Ollama (%s)...\n", model)
+	}
 	finalRespText, err := p.ollamaClient.Chat(ctx, model, messages)
 	if err != nil {
 		return "", fmt.Errorf("ollama final pass failed: %w", err)
@@ -232,7 +252,9 @@ CRITICAL RULES FOR THE FINAL PROMPT:
 
 	llmResp, err := parseLLMResponse(finalRespText)
 	if err != nil {
-		fmt.Printf("⚠️ Warning: Failed parsing LLM response as JSON in final pass (%v). Using raw response as prompt.\n", err)
+		if !p.Silent {
+			fmt.Fprintf(os.Stderr, "Warning: Failed parsing LLM response as JSON in final pass (%v). Using raw response as prompt.\n", err)
+		}
 		return finalRespText, nil
 	}
 
@@ -240,7 +262,9 @@ CRITICAL RULES FOR THE FINAL PROMPT:
 		return appendCodebaseContext(llmResp.FinalPrompt, llmResp.RelevantFiles), nil
 	}
 
-	fmt.Printf("⚠️ Warning: LLM did not output a final prompt in the final pass. Falling back gracefully.\n")
+	if !p.Silent {
+		fmt.Fprintf(os.Stderr, "Warning: LLM did not output a final prompt in the final pass. Falling back gracefully.\n")
+	}
 	if llmResp.Explanation != "" {
 		fallback := fmt.Sprintf("%s\n\n(Note: LLM context discovery suggested: %s)", rawPrompt, llmResp.Explanation)
 		return appendCodebaseContext(fallback, llmResp.RelevantFiles), nil
@@ -254,7 +278,7 @@ func appendCodebaseContext(prompt string, relevantFiles []RelevantFile) string {
 	}
 	var sb strings.Builder
 	sb.WriteString(prompt)
-	sb.WriteString("\n\n---\n⚡ **CONTEXTMAX: Evaluated Codebase Context** ⚡\n\nThe following files and symbols were evaluated by the preprocessing LLM and determined to be relevant to the issue:\n\n")
+	sb.WriteString("\n\n---\nCONTEXTMAX: Evaluated Codebase Context\n\nThe following files and symbols were evaluated by the preprocessing LLM and determined to be relevant to the issue:\n\n")
 	for _, rf := range relevantFiles {
 		sb.WriteString(fmt.Sprintf("- **%s**", rf.FilePath))
 		if len(rf.Symbols) > 0 {
