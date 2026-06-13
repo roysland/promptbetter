@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -66,7 +67,11 @@ func NewClient(projectRoot string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
-	cmd.Stderr = nil // discard stderr
+	if os.Getenv("PROMPT_ENHANCE_DEBUG") != "" {
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stderr = nil
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start agentdb mcp: %w", err)

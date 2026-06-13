@@ -1,5 +1,5 @@
 # PromptEnhance
-A CLI tool that preprocesses developer prompts by combining deterministic codebase analysis with LLM-powered enhancement. It gathers relevant project context — file contents, symbol definitions, tool output — and assembles an enriched prompt ready for downstream AI agents.
+zA CLI tool that preprocesses developer prompts by combining deterministic codebase analysis with LLM-powered enhancement. It gathers relevant project context — file contents, symbol definitions, tool output — and assembles an enriched prompt ready for downstream AI agents.
 
 # Pipeline
 Use agentdb functions to gather a rough context, especially the locate issue functionality.

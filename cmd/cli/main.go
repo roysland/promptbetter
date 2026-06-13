@@ -19,7 +19,7 @@ func main() {
 	// 1. Determine default model
 	defaultModel := os.Getenv("OLLAMA_MODEL")
 	if defaultModel == "" {
-		defaultModel = "qwen2.5-coder:7b"
+		defaultModel = "phi4-mini:latest"
 	}
 
 	// 2. Define flags
